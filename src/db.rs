@@ -479,3 +479,225 @@ pub struct QueryResult {
     /// Serialized event
     pub event: String,
 }
+
+impl DbWriter {
+    // ... existing methods ...
+
+    /// Handle NIP-59 gift wrap events
+    async fn handle_gift_wrap(&self, event: &Event, repo: &Arc<dyn NostrRepo>) -> Result<()> {
+        // For gift wrap events, we need to create additional indexes to ensure
+        // recipients can retrieve their messages efficiently
+        
+        // Extract recipients from p-tags using nip59_relay
+        let recipients = crate::nip59_relay::get_recipients(event);
+        if recipients.is_empty() {
+            debug!("Gift wrap event missing p-tags: {}", event.get_event_id_prefix());
+            return Ok(());
+        }
+        
+        // For each recipient, create an index entry
+        for recipient in recipients {
+            match self.conn.borrow_mut() {
+                SqliteConn::Rusqlite(conn) => {
+                    conn.execute(
+                        "INSERT OR IGNORE INTO gift_wrap_idx (event_id, pubkey) VALUES (?1, ?2)",
+                        rusqlite::params![&event.id, &recipient],
+                    )?;
+                }
+                SqliteConn::Sqlx(conn) => {
+                    sqlx::query(
+                        "INSERT OR IGNORE INTO gift_wrap_idx (event_id, pubkey) VALUES ($1, $2)",
+                    )
+                    .bind(&event.id)
+                    .bind(&recipient)
+                    .execute(&**conn)
+                    .await?;
+                }
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Handle NIP-44 direct messages
+    async fn handle_encrypted_dm(&self, event: &Event, repo: &Arc<dyn NostrRepo>) -> Result<()> {
+        // For encrypted direct messages, we need to create additional indexes to ensure
+        // recipients can retrieve their messages efficiently
+        
+        // Extract recipients from p-tags
+        let recipients = event.tag_values_by_name("p");
+        if recipients.is_empty() {
+            debug!("Encrypted DM missing p-tags: {}", event.get_event_id_prefix());
+            return Ok(());
+        }
+        
+        // For each recipient, create an index entry - same approach as gift wrap
+        // We use the same index table as it serves the same purpose
+        for recipient in recipients {
+            match self.conn.borrow_mut() {
+                SqliteConn::Rusqlite(conn) => {
+                    conn.execute(
+                        "INSERT OR IGNORE INTO gift_wrap_idx (event_id, pubkey) VALUES (?1, ?2)",
+                        rusqlite::params![&event.id, &recipient],
+                    )?;
+                }
+                SqliteConn::Sqlx(conn) => {
+                    sqlx::query(
+                        "INSERT OR IGNORE INTO gift_wrap_idx (event_id, pubkey) VALUES ($1, $2)",
+                    )
+                    .bind(&event.id)
+                    .bind(&recipient)
+                    .execute(&**conn)
+                    .await?;
+                }
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Handle NIP-17 private direct messages
+    async fn handle_private_dm(&self, event: &Event, repo: &Arc<dyn NostrRepo>) -> Result<()> {
+        // For direct messages, we need to create additional indexes to ensure
+        // recipients can retrieve their messages efficiently
+        
+        // Extract recipients from p-tags using nip17_relay
+        let recipients = crate::nip17_relay::get_recipients(event);
+        if recipients.is_empty() {
+            debug!("Private DM missing p-tags: {}", event.get_event_id_prefix());
+            return Ok(());
+        }
+        
+        // For each recipient, create an index entry in the same table used for gift wraps
+        // since they serve a similar purpose
+        for recipient in recipients {
+            match self.conn.borrow_mut() {
+                SqliteConn::Rusqlite(conn) => {
+                    conn.execute(
+                        "INSERT OR IGNORE INTO gift_wrap_idx (event_id, pubkey) VALUES (?1, ?2)",
+                        rusqlite::params![&event.id, &recipient],
+                    )?;
+                }
+                SqliteConn::Sqlx(conn) => {
+                    sqlx::query(
+                        "INSERT OR IGNORE INTO gift_wrap_idx (event_id, pubkey) VALUES ($1, $2)",
+                    )
+                    .bind(&event.id)
+                    .bind(&recipient)
+                    .execute(&**conn)
+                    .await?;
+                }
+            }
+        }
+        
+        // Also add an index for the sender so they can retrieve their own messages
+        match self.conn.borrow_mut() {
+            SqliteConn::Rusqlite(conn) => {
+                conn.execute(
+                    "INSERT OR IGNORE INTO gift_wrap_idx (event_id, pubkey) VALUES (?1, ?2)",
+                    rusqlite::params![&event.id, &event.pubkey],
+                )?;
+            }
+            SqliteConn::Sqlx(conn) => {
+                sqlx::query(
+                    "INSERT OR IGNORE INTO gift_wrap_idx (event_id, pubkey) VALUES ($1, $2)",
+                )
+                .bind(&event.id)
+                .bind(&event.pubkey)
+                .execute(&**conn)
+                .await?;
+            }
+        }
+        
+        // For file messages, extract and possibly store metadata
+        if crate::nip17_relay::is_file_message(event) {
+            if let Some(metadata) = crate::nip17_relay::get_file_metadata(event) {
+                debug!("File message detected: type={}, hash={}", 
+                      metadata.file_type, metadata.file_hash);
+                // Could store file metadata in a dedicated table if needed
+            }
+        }
+        
+        Ok(())
+    }
+    
+    // Modify process_event to handle NIP-17 events
+    async fn process_event(&self, event: &Event, repo: &Arc<dyn NostrRepo>) -> Result<()> {
+        // ... existing code ...
+        
+        // Handle specific event kinds
+        match event.kind {
+            0 => {
+                // ... existing metadata handling code ...
+            },
+            4 | 44 => {
+                // Handle NIP-44 encrypted direct messages
+                self.handle_encrypted_dm(event, repo).await?;
+            },
+            14 | 15 => {
+                // Handle NIP-17 private direct messages
+                self.handle_private_dm(event, repo).await?;
+            },
+            1059 => {
+                // Handle gift wrap events
+                self.handle_gift_wrap(event, repo).await?;
+            },
+            _ => {
+                // Regular event, no special handling
+            }
+        }
+        
+        // ... rest of existing code ...
+        Ok(())
+    }
+}
+
+// Add a migration function to create the gift_wrap_idx table
+async fn create_gift_wrap_tables(conn: &mut SqliteConn) -> Result<()> {
+    match conn {
+        SqliteConn::Rusqlite(conn) => {
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS gift_wrap_idx (
+                    event_id TEXT NOT NULL,
+                    pubkey TEXT NOT NULL,
+                    PRIMARY KEY (event_id, pubkey)
+                )",
+                [],
+            )?;
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_gift_wrap_pubkey ON gift_wrap_idx (pubkey)",
+                [],
+            )?;
+        }
+        SqliteConn::Sqlx(conn) => {
+            sqlx::query(
+                "CREATE TABLE IF NOT EXISTS gift_wrap_idx (
+                    event_id TEXT NOT NULL,
+                    pubkey TEXT NOT NULL,
+                    PRIMARY KEY (event_id, pubkey)
+                )",
+            )
+            .execute(&**conn)
+            .await?;
+            
+            sqlx::query(
+                "CREATE INDEX IF NOT EXISTS idx_gift_wrap_pubkey ON gift_wrap_idx (pubkey)",
+            )
+            .execute(&**conn)
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+// Update the init_db_tables function to create the gift wrap index tables
+async fn init_db_tables(conn: &mut SqliteConn) -> Result<()> {
+    // ... existing code ...
+    
+    // Create tables for NIP-17 support
+    create_gift_wrap_tables(conn).await?;
+    
+    // ... rest of existing code ...
+    
+    Ok(())
+}

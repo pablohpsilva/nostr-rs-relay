@@ -23,46 +23,119 @@ console-subscriber = "0.1.8"
 futures = "0.3"
 futures-util = "0.3"
 tokio-tungstenite = "0.17"
-tungstenite = "0.17"
-thiserror = "1"
-uuid = { version = "1.1.2", features = ["v4"] }
-config = { version = "0.12", features = ["toml"] }
-bitcoin_hashes = { version = "0.10", features = ["serde"] }
-secp256k1 = {version = "0.21", features = ["rand", "rand-std", "serde", "bitcoin_hashes"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = {version = "1.0", features = ["preserve_order"]}
-hex = "0.4"
-rusqlite = { version = "0.26", features = ["limits","bundled","modern_sqlite", "trace"]}
-r2d2 = "0.8"
-r2d2_sqlite = "0.19"
-lazy_static = "1.4"
-governor = "0.4"
-nonzero_ext = "0.3"
-hyper = { version="0.14", features=["client", "server","http1","http2","tcp"] }
-hyper-rustls = { version = "0.24" }
-http = { version = "0.2" }
-parse_duration = "2"
-rand = "0.8"
-const_format = "0.2.28"
-regex = "1"
-async-trait = "0.1.60"
-async-std = "1.12.0"
-sqlx = { version ="0.6.2", features=["runtime-tokio-rustls", "postgres", "chrono"]}
-chrono = "0.4.23"
-prometheus = "0.13.3"
-indicatif = "0.17.3"
-bech32 = "0.9.1"
-url = "2.3.1"
-qrcode = { version = "0.12.0", default-features = false, features = ["svg"] }
-nostr = { version = "0.18.0", default-features = false, features = ["base", "nip04", "nip19"] }
-log = "0.4"
-cln-rpc = "0.1.9"
+tungstenite = "0.17.2"
+tokio-stream = "0.1.9"
+rust-embed = "6.4.0"
+serde = { version = "1.0.147", features = ["derive"] }
+serde_json = "1.0.87"
+r2d2 = "0.8.10"
+r2d2_sqlite = "0.21.0"
+hex = "0.4.3"
+rusqlite = { version = "0.28.0", features = ["bundled"] }
+# Use sqlx with limited features to avoid dependency conflicts
+sqlx = { version = "0.6.3", default-features = false, features = ["runtime-tokio-native-tls", "sqlite"] }
+axum = { version = "0.6.1", features = ["ws", "headers"] }
+tower = "0.4"
+tower-http = { version = "0.3.0", features = ["trace", "catch-panic"] }
+systemd-journal-logger = "0.5.0"
+tikv-jemallocator = { version = "0.5", features = [
+    "profiling",
+    "unprefixed_malloc_on_supported_platforms",
+], optional = true }
+num_cpus = "1.14.0"
+miniz_oxide = "0.6.2"
+parse_duration = "2.1.1"
+dotenvy = "0.15.6"
+hex-literal = "0.4.1"
+regex = "1.7.0"
+chrono = { version = "0.4.23", features = ["clock", "std", "wasmbind"] }
+qrcode = { version = "0.12.0", features = ["svg"], optional = true }
+nostr = { version = "0.18", default-features = false, features = ["base", "nip04", "nip19"] }
+bitcoin_hashes = "0.12.0"
+base64 = "0.21.0"
+secp256k1 = { version = "0.27.0", features = ["serde", "rand"] }
+governor = "0.4.2"
+tempfile = "3.3.0"
+uuid = { version = "1.2.2", features = ["v4", "fast-rng"] }
+rust-ini = "0.18.0"
+hyper = { version = "0.14.23", features = ["server"] }
+hyper-timeout = "0.4.1"
+whoami = "1.2.3"
+rand = "0.8.5"
+thiserror = "2.0.0"
+config = "0.12.0"
+postgres-types = { version = "0.2.5", features = [
+    "derive",
+], optional = true }
+tokio-postgres = { version = "0.7.7", features = [
+    "with-chrono-0_4",
+    "with-uuid-1",
+], optional = true }
+deadpool-postgres = { version = "0.10.3", optional = true }
+prometheus = { version = "0.13.3", features = ["process"], optional = true }
+time = "0.3.17"
+dashmap = "5.4.0"
+cln-rpc = { version = "0.1.0" }
+tiny_http = "0.12.0"
+chacha20 = "0.9.1"
 
-[target.'cfg(all(not(target_env = "msvc"), not(target_os = "openbsd")))'.dependencies]
-tikv-jemallocator = "0.5"
+# Make rusqlite use bundled SQLite to avoid system dependencies
+libsqlite3-sys = { version = "0.25.2", features = ["bundled"] }
 
-[dev-dependencies]
-anyhow = "1"
+[features]
+default = ["sqlite", "vendored-openssl"]
+jemalloc = ["tikv-jemallocator"]
+vendored-openssl = ["openssl/vendored"]
+qr = ["qrcode"]
+sqlite = []
+postgres = [
+    "tokio-postgres",
+    "postgres-types",
+    "deadpool-postgres",
+]
+payment = ["prometheus"]
+metrics = ["prometheus"]
 
 [build-dependencies]
-tonic-build = { version="0.8.3", features = ["prost"] }
+tonic-build = "0.8.4"
+walkdir = "2.3.2"
+reqwest = "0.11.16"
+tokio = { version = "1.27.0", features = ["full", "fs"] }
+
+[dependencies.openssl]
+version = "0.10.55"
+optional = true
+
+[dev-dependencies]
+anyhow = "1.0.66"
+sqlx-cli = "0.6.3"
+
+[[test]]
+name = "nip44_unit_test"
+path = "tests/nip44_test.rs"
+harness = true
+
+[[test]]
+name = "nip44_relay_unit_test"
+path = "tests/nip44_relay_test.rs"
+harness = true
+
+[[test]]
+name = "nip59_unit_test"
+path = "tests/nip59_test.rs"
+harness = true
+
+[[test]]
+name = "nip59_relay_unit_test"
+path = "tests/nip59_relay_test.rs"
+harness = true
+
+[[test]]
+name = "nip17_unit_test"
+path = "tests/nip17_test.rs"
+harness = true
+
+[[test]]
+name = "nip17_relay_unit_test"
+path = "tests/nip17_relay_test.rs"
+harness = true

@@ -86,6 +86,33 @@ pub trait NostrRepo: Send + Sync {
     /// Get the most recent invoice for a given pubkey
     /// invoice must be unpaid and not expired
     async fn get_unpaid_invoice(&self, pubkey: &Keys) -> Result<Option<InvoiceInfo>>;
+
+    /// Query gift wrap events for a specific pubkey
+    async fn query_gift_wraps_for_pubkey(
+        &self,
+        pubkey: &str,
+        limit: Option<u64>,
+        since: Option<u64>,
+        until: Option<u64>,
+    ) -> Result<Vec<Event>>;
+
+    /// Query encrypted direct messages (kind 4 & 44) for a specific pubkey
+    async fn query_encrypted_dms_for_pubkey(
+        &self,
+        pubkey: &str,
+        limit: Option<u64>,
+        since: Option<u64>,
+        until: Option<u64>,
+    ) -> Result<Vec<Event>>;
+
+    /// Query NIP-17 private direct messages (kind 14 & 15) for a specific pubkey
+    async fn query_private_dms_for_pubkey(
+        &self,
+        pubkey: &str,
+        limit: Option<u64>,
+        since: Option<u64>,
+        until: Option<u64>,
+    ) -> Result<Vec<Event>>;
 }
 
 // Current time, with a slight forward jitter in seconds

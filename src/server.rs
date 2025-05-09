@@ -1293,6 +1293,14 @@ async fn nostr_server(
                                 metrics.cmd_event.inc();
                                 let id_prefix:String = e.id.chars().take(8).collect();
                                 debug!("successfully parsed/validated event: {:?} (cid: {}, kind: {})", id_prefix, cid, e.kind);
+                                
+                                // Validate event structure including NIP-44 validation
+                                if !validate_event(&e, &settings)? {
+                                    let notice = Notice::invalid(e.id, "Event validation failed");
+                                    ws_stream.send(make_notice_message(&notice)).await.ok();
+                                    continue;
+                                }
+                                
                                 // check if event is expired
                                 if e.is_expired() {
                                     let notice = Notice::invalid(e.id, "The event has already expired");
@@ -1462,4 +1470,43 @@ pub struct NostrMetrics {
     pub cmd_event: IntCounter,       // count of EVENT commands received
     pub cmd_close: IntCounter,       // count of CLOSE commands received
     pub cmd_auth: IntCounter,        // count of AUTH commands received
+}
+
+/// Validate Event
+fn validate_event(event: &Event, settings: &Settings) -> Result<bool> {
+    // First check if the event is expired
+    if event.is_expired() {
+        return Ok(false);
+    }
+    
+    // Check if the event timestamp is valid
+    if !event.is_valid_timestamp(settings.options.reject_future_seconds) {
+        return Ok(false);
+    }
+    
+    // Validate encrypted content for direct messages (kind 4 & 44)
+    if event.kind == 4 || event.kind == 44 {
+        if !crate::nip44_relay::validate_event(event) {
+            debug!("NIP-44 validation failed for event: {}", event.get_event_id_prefix());
+            return Ok(false);
+        }
+    }
+    
+    // Validate NIP-17 private direct messages (kind 14 & 15)
+    if event.kind == 14 || event.kind == 15 {
+        if !crate::nip17_relay::validate_event(event) {
+            debug!("NIP-17 validation failed for event: {}", event.get_event_id_prefix());
+            return Ok(false);
+        }
+    }
+    
+    // Validate gift wrap events (kind 1059) 
+    if event.kind == 1059 {
+        if !crate::nip59_relay::validate_event(event) {
+            debug!("NIP-59 validation failed for event: {}", event.get_event_id_prefix());
+            return Ok(false);
+        }
+    }
+    
+    Ok(true)
 }

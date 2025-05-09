@@ -247,16 +247,138 @@ impl Subscription {
         self.filters.iter().any(|f| f.limit != Some(0))
     }
 
-    /// Determine if this subscription matches a given [`Event`].  Any
-    /// individual filter match is sufficient.
-    #[must_use]
-    pub fn interested_in_event(&self, event: &Event) -> bool {
-        for f in &self.filters {
-            if f.interested_in_event(event) {
-                return true;
-            }
+    /// Check whether this subscription is interested in a NIP-17 gift wrap event.
+    /// Gift wraps should be sent to a client if:
+    /// 1. The subscription asks for kind 1059 events
+    /// 2. The gift wrap has a p-tag matching an author in the subscription
+    fn is_interested_in_gift_wrap(&self, event: &Event) -> bool {
+        if event.kind != 1059 {
+            return false;
         }
-        false
+        
+        // Get recipients from p-tags using nip59_relay
+        let recipients = crate::nip59_relay::get_recipients(event);
+        if recipients.is_empty() {
+            return false;
+        }
+        
+        // Check if any filter matches
+        self.filters.iter().any(|filter| {
+            // Check if the filter includes kind 1059
+            let kind_matches = match &filter.kinds {
+                Some(kinds) => kinds.contains(&1059),
+                None => true, // No kind filter means match all kinds
+            };
+            
+            if !kind_matches {
+                return false;
+            }
+            
+            // Check if the p-tag recipients match any authors in the subscription
+            match &filter.authors {
+                Some(authors) => recipients.iter().any(|r| authors.contains(r)),
+                None => true, // No author filter means match all authors
+            }
+        })
+    }
+    
+    /// Check if this subscription is interested in encrypted direct messages
+    /// DMs should be sent to a client if:
+    /// 1. The subscription asks for kind 4 or 44 events
+    /// 2. The DM has a p-tag matching an author in the subscription or the client is the sender
+    fn is_interested_in_dm(&self, event: &Event) -> bool {
+        if event.kind != 4 && event.kind != 44 {
+            return false;
+        }
+        
+        // Get recipients from p-tags
+        let recipients = event.tag_values_by_name("p");
+        if recipients.is_empty() {
+            return false;
+        }
+        
+        // Check if any filter matches
+        self.filters.iter().any(|filter| {
+            // Check if the filter includes kind 4 or 44
+            let kind_matches = match &filter.kinds {
+                Some(kinds) => kinds.contains(&4) || kinds.contains(&44),
+                None => true, // No kind filter means match all kinds
+            };
+            
+            if !kind_matches {
+                return false;
+            }
+            
+            // Check if the p-tag recipients match any authors in the subscription
+            // OR if the subscription includes the sender's pubkey
+            match &filter.authors {
+                Some(authors) => {
+                    recipients.iter().any(|r| authors.contains(r)) ||
+                    authors.contains(&event.pubkey)
+                },
+                None => true, // No author filter means match all authors
+            }
+        })
+    }
+    
+    /// Check if this subscription is interested in NIP-17 direct messages
+    /// Private messages should be sent to a client if:
+    /// 1. The subscription asks for kind 14 or 15 events
+    /// 2. The message has a p-tag matching an author in the subscription or the client is the sender
+    fn is_interested_in_private_dm(&self, event: &Event) -> bool {
+        if event.kind != 14 && event.kind != 15 {
+            return false;
+        }
+        
+        // Get recipients from p-tags using nip17_relay
+        let recipients = crate::nip17_relay::get_recipients(event);
+        if recipients.is_empty() {
+            return false;
+        }
+        
+        // Check if any filter matches
+        self.filters.iter().any(|filter| {
+            // Check if the filter includes kind 14 or 15
+            let kind_matches = match &filter.kinds {
+                Some(kinds) => kinds.contains(&14) || kinds.contains(&15),
+                None => true, // No kind filter means match all kinds
+            };
+            
+            if !kind_matches {
+                return false;
+            }
+            
+            // Check if the p-tag recipients match any authors in the subscription
+            // OR if the subscription includes the sender's pubkey
+            match &filter.authors {
+                Some(authors) => {
+                    recipients.iter().any(|r| authors.contains(r)) ||
+                    authors.contains(&event.pubkey)
+                },
+                None => true, // No author filter means match all authors
+            }
+        })
+    }
+    
+    /// Check if this subscription matches this event.
+    pub fn interested_in_event(&self, event: &Event) -> bool {
+        // Special case for NIP-17 gift wraps (kind 1059)
+        if event.kind == 1059 {
+            return self.is_interested_in_gift_wrap(event);
+        }
+        
+        // Special case for NIP-44 encrypted direct messages (kind 4 & 44)
+        if event.kind == 4 || event.kind == 44 {
+            return self.is_interested_in_dm(event);
+        }
+        
+        // Special case for NIP-17 private direct messages (kind 14 & 15)
+        if event.kind == 14 || event.kind == 15 {
+            return self.is_interested_in_private_dm(event);
+        }
+        
+        // The existing general filter matching logic
+        self.filters.iter().any(|f| f.interested_in_event(event))
     }
 
     /// Is this subscription defined as a scraper query

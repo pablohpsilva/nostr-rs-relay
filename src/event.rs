@@ -422,6 +422,34 @@ impl Event {
             None => false,
         }
     }
+
+    /// Is this event a NIP-17 gift wrap?
+    #[must_use]
+    pub fn is_gift_wrap(&self) -> bool {
+        self.kind == 1059
+    }
+
+    /// Is this event a NIP-17 seal?
+    #[must_use]
+    pub fn is_seal(&self) -> bool {
+        self.kind == 13
+    }
+
+    /// Is this a direct message or file message?
+    #[must_use]
+    pub fn is_direct_message(&self) -> bool {
+        self.kind == 14 || self.kind == 15
+    }
+
+    /// Extract pubkeys from p-tags for NIP-17 gift wraps
+    #[must_use]
+    pub fn get_gift_wrap_recipients(&self) -> Vec<String> {
+        if !self.is_gift_wrap() {
+            return Vec::new();
+        }
+        
+        self.tag_values_by_name("p")
+    }
 }
 
 impl From<nostr::Event> for Event {
